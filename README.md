@@ -4,6 +4,8 @@ Android-first, online-only engineering foundation for one elbow flexion/extensio
 
 The current exercise input is **SIMULATED**, clearly labelled throughout the application. There is no live camera preview, camera permission request, ML Kit processing, or verified physical-phone tracking. Thresholds (flexed ≤70°, extended ≥150°), target (10), dwell (200 ms), confidence cutoff (0.7), and instructions are demonstration defaults requiring professional review before patient use. This is not patient-ready software.
 
+The RST-005 UI pass adds a shared visual theme, clearer sign-in validation, exercise progress and recovery states, and readable server-backed history. See [the review notes and synthetic screen previews](docs/UX-REVIEW.md). Frontend work can proceed and merge independently against the agreed API contract; the two repositories integrate through HTTP. Complete a real phone/API run before calling the MVP verified, and deploy compatible backend changes before releasing a client that needs them.
+
 ## Run the foundation
 
 Install Flutter **3.47.7** (Dart 3.13.5; `.fvmrc` records the selection), Android Studio with Android SDK 36, JDK 17, and an Android emulator or USB-debuggable phone. The generated Android project targets SDK 36 and requires Android API 24+. Gradle also installs SDK platform 35 for a transitive JNI plugin; accept the Android SDK licenses before building. Flutter/package versions and official references are recorded in [docs/dependencies.md](docs/dependencies.md).
@@ -49,6 +51,7 @@ Stopping freezes the summary and its single client-generated UUID before any asy
 lib/
   core/api/                    HTTP, bearer headers, error envelope and response checks
   core/platform/               replaceable secure token store
+  core/ui/                     shared theme, layout and state feedback
   features/authentication/     data repositories, ChangeNotifier state, screens
   features/exercise/           assignment, isolated counter/controller, screens
     platform/pose_source.dart  replaceable on-device tracking boundary
@@ -72,13 +75,15 @@ dart format --output=none --set-exit-if-changed lib test tool
 flutter analyze
 flutter test
 flutter build apk --debug
+# Optional: render actual widgets with synthetic data for visual review.
+flutter test test/ui_preview_test.dart --dart-define=WRITE_UI_PREVIEWS=true
 ```
 
 CI runs these commands with pinned Flutter and JDK. The tests exercise full cycles, dwell/jitter, missing/invalid/stale samples, capture gaps, frozen retries, duplicate retry prevention, authentication failures, lifecycle startup races, request bodies, server envelopes, malformed responses, timeouts, and network failures. An APK build does not validate camera behavior, secure-storage operation on a phone, or the end-to-end phone/backend workflow.
 
-Verified in this workspace on 2026-10-16: `flutter pub get --enforce-lockfile` passed; formatting passed; `flutter analyze` reported no issues; all **27 Flutter tests passed**; `flutter build apk --debug` succeeded. The local artifact is `build/app/outputs/flutter-apk/app-debug.apk` (159,292,575 bytes), excluded from Git. The first native build installed the additional SDK platform and CMake dependencies described above.
+Verified in this workspace on 2026-10-16: `flutter pub get --enforce-lockfile` passed; formatting passed; `flutter analyze` reported no issues; **40 Flutter tests passed** with `flutter test --dart-define=WRITE_UI_PREVIEWS=true`, including the opt-in preview render. The ordinary `flutter test` command skips that one artifact test. UI coverage includes local field validation, loading/empty/error recovery, same-account reauthentication, blocked navigation during sign-out, frozen save retry, and 360px layouts at 1.5× text size. `flutter build apk --debug` succeeded; the local artifact is `build/app/outputs/flutter-apk/app-debug.apk`, excluded from Git. The first native build installed the additional SDK platform and CMake dependencies described above.
 
-The repository HTTP smoke also passed against the running FastAPI/PostgreSQL backend: login → assignment → one simulated summary → identical retry → conflicting retry rejected → backend history. Two identical POSTs and one conflicting POST left exactly one stored simulated session. These results verify the foundation and its simulated integration path. No physical phone was connected: camera tracking, secure token storage on the actual phone, phone lifecycle/permission behavior, and the complete phone/backend workflow remain unverified. Frontend source is published to [adnro2/restora](https://github.com/adnro2/restora/tree/feat/RST-001-mvp-foundation) on `feat/RST-001-mvp-foundation`; `main` retains the initial scaffold pending PR review. Remote CI, Railway deployment, and release distribution remain pending; this repository does not claim Docker execution or hosted deployment validation.
+The foundation HTTP smoke previously passed against the local FastAPI/PostgreSQL backend: login → assignment → one simulated summary → identical retry → conflicting retry rejected → backend history. Two identical POSTs and one conflicting POST left exactly one stored simulated session. RST-005 changes no API fields, dependencies or counting rules, and its UI tests use synthetic fixtures. These results verify the foundation and its simulated integration path. No physical phone was connected: camera tracking, secure token storage on the actual phone, phone lifecycle/permission behavior, and the complete phone/backend workflow remain unverified. Frontend source is published to [adnro2/restora](https://github.com/adnro2/restora); `main` retains the initial scaffold pending foundation PR review, with RST-005 stacked on `feat/RST-001-mvp-foundation`. See [CONTRIBUTING.md](CONTRIBUTING.md) for review order. Remote CI, Railway deployment, and release distribution remain pending; this repository does not claim Docker execution or hosted deployment validation.
 
 With the local backend running and seeded, the repository smoke script uses the same HTTP repositories as the app to verify login, assignment retrieval, save, identical retry, conflict rejection, and history. It creates one synthetic simulated session per invocation:
 

@@ -9,6 +9,7 @@ class HistoryController extends ChangeNotifier {
   final SessionRepository _repository;
   List<SavedSession> sessions = const [];
   bool loading = false;
+  bool authenticationRequired = false;
   String? error;
   bool _disposed = false;
 
@@ -17,11 +18,14 @@ class HistoryController extends ChangeNotifier {
     loading = true;
     sessions = const [];
     error = null;
+    authenticationRequired = false;
     notifyListeners();
     try {
       sessions = await _repository.history();
     } catch (failure) {
       error = errorMessage(failure);
+      authenticationRequired =
+          failure is ApiException && failure.isUnauthorized;
     } finally {
       loading = false;
       if (!_disposed) notifyListeners();

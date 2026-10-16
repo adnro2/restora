@@ -44,11 +44,16 @@ class ExerciseController extends ChangeNotifier {
   String? error;
   double? angle;
 
-  String get trackingStatus => !running
-      ? 'Stopped'
-      : counter.tracking
-      ? 'Simulated landmarks available'
-      : 'Tracking interrupted — partial cycle reset';
+  String get trackingStatus {
+    if (starting) return 'Starting session';
+    if (saving) return 'Saving your results';
+    if (saved != null) return 'Session saved';
+    if (pending != null) return 'Stopped · not saved yet';
+    if (!running) return 'Ready when you are';
+    return counter.tracking
+        ? 'Simulated input active'
+        : 'Input interrupted · partial cycle reset';
+  }
 
   void _changed() {
     if (!_disposed) notifyListeners();

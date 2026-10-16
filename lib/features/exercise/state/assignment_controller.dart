@@ -10,6 +10,7 @@ class AssignmentController extends ChangeNotifier {
   Assignment? assignment;
   String? error;
   bool loading = false;
+  bool authenticationRequired = false;
   bool _disposed = false;
 
   Future<void> load() async {
@@ -17,11 +18,14 @@ class AssignmentController extends ChangeNotifier {
     loading = true;
     assignment = null;
     error = null;
+    authenticationRequired = false;
     notifyListeners();
     try {
       assignment = await _repository.fetch();
     } catch (failure) {
       error = errorMessage(failure);
+      authenticationRequired =
+          failure is ApiException && failure.isUnauthorized;
     } finally {
       loading = false;
       if (!_disposed) notifyListeners();

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 
 import 'core/api/api_client.dart';
 import 'core/platform/token_store.dart';
+import 'core/ui/restora_theme.dart';
+import 'core/ui/restora_widgets.dart';
 import 'features/authentication/data/auth_repository.dart';
 import 'features/authentication/screens/login_screen.dart';
 import 'features/authentication/state/auth_controller.dart';
@@ -53,16 +55,23 @@ class _RestoraAppState extends State<RestoraApp> {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Restora Demo',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorSchemeSeed: const Color(0xff246b64),
-      useMaterial3: true,
-    ),
+    theme: RestoraTheme.light,
     home: ListenableBuilder(
       listenable: _auth,
       builder: (context, _) {
         if (_auth.restoring) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: PageBody(
+              children: [
+                SizedBox(height: 56),
+                StatePanel(
+                  icon: Icons.lock_outline_rounded,
+                  title: 'Opening Restora',
+                  message: 'Checking your sign-in securely.',
+                  loading: true,
+                ),
+              ],
+            ),
           );
         }
         return _auth.token == null

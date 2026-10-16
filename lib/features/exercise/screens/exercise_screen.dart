@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/ui/restora_theme.dart';
+import '../../../core/ui/restora_widgets.dart';
 import '../../authentication/screens/login_screen.dart';
 import '../../authentication/state/auth_controller.dart';
 import '../platform/simulated_pose_source.dart';
@@ -50,14 +52,12 @@ class _ExerciseScreenState extends State<ExerciseScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Discard unsaved summary?'),
-        content: const Text(
-          'This summary exists only in memory. Leaving now permanently discards it.',
-        ),
+        title: const Text('Discard unsaved session?'),
+        content: const Text('Leaving will discard these unsaved results.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep summary'),
+            child: const Text('Keep results'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
@@ -74,22 +74,90 @@ class _ExerciseScreenState extends State<ExerciseScreen>
     }
   }
 
+  String get _instruction => switch (_controller.counter.phase) {
+    RepPhase.awaitingExtension => 'Extend to establish the start position.',
+    RepPhase.awaitingFlexion => 'Flex the elbow, then hold briefly.',
+    RepPhase.awaitingReturn => 'Return to extension to complete one cycle.',
+  };
+
+  Widget _actions() {
+    if (_controller.saving || _controller.starting) {
+      return FilledButton.icon(
+        onPressed: null,
+        icon: const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: Text(_controller.saving ? 'Saving results…' : 'Starting…'),
+      );
+    }
+    if (_controller.running) {
+      return FilledButton.icon(
+        onPressed: _controller.stop,
+        icon: const Icon(Icons.stop_circle_outlined),
+        label: const Text('Stop and save'),
+      );
+    }
+    if (_controller.pending != null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilledButton.icon(
+            onPressed: _controller.retrySave,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Retry save'),
+          ),
+          TextButton(
+            onPressed: _discard,
+            child: const Text('Discard unsaved session'),
+          ),
+        ],
+      );
+    }
+    if (_controller.saved != null) {
+      return FilledButton.icon(
+        onPressed: () => Navigator.pop(context),
+        icon: const Icon(Icons.check_rounded),
+        label: const Text('Done'),
+      );
+    }
+    return FilledButton.icon(
+      onPressed: _controller.start,
+      icon: const Icon(Icons.play_arrow_rounded),
+      label: const Text('Start simulated session'),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _controller,
     builder: (context, _) {
       final source = _controller.source;
+      final count = _controller.counter.repetitions;
+      final target = _controller.assignment.targetRepetitions;
+      final progress = target > 0 ? (count / target).clamp(0.0, 1.0) : 0.0;
       final canLeave =
           _discarded ||
           (!_controller.running &&
               !_controller.starting &&
               _controller.pending == null &&
               !_controller.saving);
-      final instruction = switch (_controller.counter.phase) {
-        RepPhase.awaitingExtension => 'Extend to establish the start position.',
-        RepPhase.awaitingFlexion => 'Flex the elbow, then hold briefly.',
-        RepPhase.awaitingReturn => 'Return to extension to complete one cycle.',
-      };
+      final interrupted = _controller.running && !_controller.counter.tracking;
+      final statusMessage = _controller.running
+          ? (_controller.counter.tracking
+                ? _instruction
+                : 'Simulated landmarks are unavailable. A partial cycle will not count.')
+          : _controller.saving
+          ? 'Keep this screen open while your stopped session is saved.'
+          : _controller.saved != null
+          ? 'Your results are saved in session history.'
+          : _controller.pending != null
+          ? 'Your results stay available while this screen is open.'
+          : _controller.starting
+          ? 'Preparing simulated movement input.'
+          : 'Start when you are ready. Results are saved after you stop.';
       return PopScope(
         canPop: canLeave,
         onPopInvokedWithResult: (didPop, result) {
@@ -97,147 +165,231 @@ class _ExerciseScreenState extends State<ExerciseScreen>
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text(
-                  'Stop and save before leaving, or explicitly discard an unsaved summary.',
+                  'Stop before leaving. Save your results or explicitly discard an unsaved session.',
                 ),
               ),
             );
           }
         },
         child: Scaffold(
-          appBar: AppBar(title: const Text('Elbow movement demo')),
-          body: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              const Card(
-                color: Color(0xffffe8bd),
+          appBar: AppBar(title: const Text('Demo session')),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              heightFactor: 1,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
                 child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'SIMULATED INPUT — NO CAMERA TRACKING\nIntegration testing only. Demonstration defaults require professional review before patient use.',
-                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                  child: SizedBox(width: double.infinity, child: _actions()),
                 ),
               ),
-              const SizedBox(height: 20),
-              Center(
-                child: Text(
-                  '${_controller.counter.repetitions}',
-                  style: Theme.of(context).textTheme.displayLarge,
-                  semanticsLabel:
-                      '${_controller.counter.repetitions} complete repetitions',
-                ),
+            ),
+          ),
+          body: PageBody(
+            children: [
+              const StatusNotice(
+                title: 'SIMULATED INPUT · NO CAMERA TRACKING',
+                message:
+                    'Demonstration defaults require professional review before patient use.',
+                tone: NoticeTone.warning,
+                icon: Icons.science_outlined,
               ),
-              Center(
-                child: Text(
-                  'Completed repetitions · demo target ${_controller.assignment.targetRepetitions}',
+              const SizedBox(height: 24),
+              const SectionHeading(
+                title: 'One complete movement at a time',
+                subtitle: 'Elbow flexion / extension demonstration',
+              ),
+              SectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'SESSION PROGRESS',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5,
+                        color: RestoraColors.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Semantics(
+                                liveRegion: true,
+                                label: '$count complete repetitions',
+                                excludeSemantics: true,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    '$count',
+                                    style: const TextStyle(
+                                      fontSize: 76,
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.05,
+                                      color: RestoraColors.ink,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'complete repetitions',
+                                style: TextStyle(color: RestoraColors.muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 92,
+                          height: 92,
+                          child: ElbowMotionGraphic(
+                            angle:
+                                _controller.angle ??
+                                (source is SimulatedPoseSource
+                                    ? source.angle
+                                    : 110),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 8,
+                        backgroundColor: RestoraColors.paleTeal,
+                        semanticsLabel:
+                            'Demo target progress: $count of $target repetitions',
+                        semanticsValue: '${(progress * 100).round()}',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Demo target: $target complete repetitions',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: RestoraColors.muted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),
-              Text(_controller.trackingStatus, textAlign: TextAlign.center),
-              if (_controller.running) ...[
-                Text(instruction, textAlign: TextAlign.center),
-                Text(
-                  'Angle: ${_controller.angle?.toStringAsFixed(0) ?? 'unavailable'}°',
-                  textAlign: TextAlign.center,
+              Semantics(
+                liveRegion: true,
+                child: StatusNotice(
+                  title: _controller.trackingStatus,
+                  message: statusMessage,
+                  tone: interrupted || _controller.pending != null
+                      ? NoticeTone.warning
+                      : NoticeTone.info,
+                  icon: _controller.saved != null
+                      ? Icons.check_circle_outline_rounded
+                      : interrupted
+                      ? Icons.visibility_off_outlined
+                      : Icons.radio_button_checked_rounded,
                 ),
-              ],
-              const SizedBox(height: 20),
-              if (source is SimulatedPoseSource) ...[
-                Text('Simulated elbow angle: ${source.angle.round()}°'),
-                Slider(
-                  value: source.angle,
-                  min: 30,
-                  max: 175,
-                  divisions: 145,
-                  label: '${source.angle.round()}°',
-                  onChanged: _controller.running
-                      ? (value) => setState(() => source.angle = value)
-                      : null,
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Simulated landmarks visible'),
-                  subtitle: const Text(
-                    'Turn off to test interruption and partial-cycle reset.',
-                  ),
-                  value: source.landmarksVisible,
-                  onChanged: _controller.running
-                      ? (value) =>
-                            setState(() => source.landmarksVisible = value)
-                      : null,
-                ),
-                const Text(
-                  'Hold ≥150° → ≤70° → ≥150°, about 0.3 seconds at each end. These are engineering demonstration defaults.',
-                ),
-              ],
-              const SizedBox(height: 20),
-              if (!_controller.running &&
-                  !_controller.starting &&
-                  _controller.pending == null &&
-                  _controller.saved == null)
-                FilledButton(
-                  onPressed: _controller.start,
-                  child: const Text('Start simulated session'),
-                ),
-              if (_controller.starting)
-                const Center(child: CircularProgressIndicator()),
-              if (_controller.running)
-                FilledButton(
-                  onPressed: _controller.stop,
-                  child: const Text('Stop and save'),
-                ),
-              if (_controller.saving)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 12),
-                      Text('Saving stopped summary…'),
-                    ],
-                  ),
-                ),
+              ),
               if (_controller.error case final message?) ...[
-                Text(
-                  message,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                const SizedBox(height: 16),
+                StatusNotice(
+                  title: _controller.pending == null
+                      ? 'Session could not start'
+                      : 'Your results have not saved',
+                  message: message,
+                  tone: NoticeTone.error,
+                  icon: Icons.error_outline_rounded,
                 ),
                 if (_controller.pending != null)
-                  const Text(
-                    'Your results are retained while this screen stays open. Check your connection, then retry save.',
+                  const Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text(
+                      'Your results are retained while this screen stays open. Check your connection, then retry save.',
+                      style: TextStyle(color: RestoraColors.muted),
+                    ),
+                  ),
+                if (_controller.authenticationRequired)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      if (await reauthenticate(context, widget.auth) &&
+                          mounted) {
+                        await _controller.retrySave();
+                      }
+                    },
+                    icon: const Icon(Icons.login_rounded),
+                    label: const Text('Sign in again and retry save'),
                   ),
               ],
-              if (_controller.authenticationRequired)
-                TextButton(
-                  onPressed: () async {
-                    if (await reauthenticate(context, widget.auth)) {
-                      await _controller.retrySave();
-                    }
-                  },
-                  child: const Text('Sign in again and retry save'),
+              if (source is SimulatedPoseSource &&
+                  _controller.saved == null &&
+                  _controller.pending == null) ...[
+                const SizedBox(height: 28),
+                const SectionHeading(
+                  title: 'Try the movement',
+                  subtitle: 'Use the slider to simulate a full cycle.',
                 ),
-              if (_controller.pending != null && !_controller.saving) ...[
-                FilledButton(
-                  onPressed: _controller.retrySave,
-                  child: const Text('Retry save'),
-                ),
-                TextButton(
-                  onPressed: _discard,
-                  child: const Text('Discard unsaved session'),
-                ),
-              ],
-              if (_controller.saved != null) ...[
-                const Text(
-                  'Saved. View this session in History.',
-                  textAlign: TextAlign.center,
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Done'),
+                SectionCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Simulated elbow angle',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${source.angle.round()}°',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Slider(
+                        value: source.angle,
+                        min: 30,
+                        max: 175,
+                        divisions: 145,
+                        label: '${source.angle.round()}°',
+                        semanticFormatterCallback: (value) =>
+                            '${value.round()} degrees, simulated elbow angle',
+                        onChanged: _controller.running
+                            ? (value) => setState(() => source.angle = value)
+                            : null,
+                      ),
+                      Text(
+                        'Extend ≥${_controller.assignment.extendedThreshold.round()}°, flex ≤${_controller.assignment.flexedThreshold.round()}°, then extend. Hold about 0.3 seconds at each end.',
+                        style: const TextStyle(color: RestoraColors.muted),
+                      ),
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Simulated landmarks visible'),
+                        subtitle: const Text(
+                          'Turn off to try an interruption. Partial cycles reset.',
+                        ),
+                        value: source.landmarksVisible,
+                        onChanged: _controller.running
+                            ? (value) => setState(
+                                () => source.landmarksVisible = value,
+                              )
+                            : null,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ],
